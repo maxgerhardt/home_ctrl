@@ -1,0 +1,1208 @@
+//#include "eeprom.h"
+//volatile static bool wire_init_done = false;
+
+#ifndef disk1
+void fs_eeprom::_writeEEPROM(int deviceaddress, unsigned int eeaddress, byte data )
+{
+	if(!wire_init_done)
+	eepromsetup();
+	Wire.beginTransmission(deviceaddress);
+	Wire.write((int)(eeaddress >> 8));   // MSB
+	Wire.write((int)(eeaddress & 0xFF));// LSB
+	Wire.write(data);
+	Wire.endTransmission();
+
+	delay(5);//<- VERY IMPORTANT FOR THE EEPROM
+}
+
+byte fs_eeprom::_readEEPROM(int deviceaddress, unsigned int eeaddress )
+{
+	if(!wire_init_done)
+	eepromsetup();
+
+	byte rdata = 0xFF;
+
+	Wire.beginTransmission(deviceaddress);
+	Wire.write((int)(eeaddress >> 8));   // MSB
+	Wire.write((int)(eeaddress & 0xFF));// LSB
+	Wire.endTransmission();
+
+	Wire.requestFrom(deviceaddress,1);
+
+	if (Wire.available()) rdata = Wire.read();
+
+	return rdata;
+
+}
+#endif
+#ifdef disk1
+void /*fs_eeprom::*/_writeEEPROM(unsigned int eeaddress, byte data) {
+
+	int deviceaddress = disk1;
+	Wire.beginTransmission(deviceaddress);
+	Wire.write((int) (eeaddress >> 8));   // MSB
+	Wire.write((int) (eeaddress & 0xFF)); // LSB
+	Wire.write(data);
+	Wire.endTransmission();
+
+	delay(10);  //<- VERY IMPORTANT FOR THE EEPROM
+}
+
+byte /*fs_eeprom::*/_readEEPROM(unsigned int eeaddress) {
+
+	int deviceaddress = disk1;
+
+	byte rdata = 0xFF;
+
+	Wire.beginTransmission(deviceaddress);
+	Wire.write((int) (eeaddress >> 8));   // MSB
+	Wire.write((int) (eeaddress & 0xFF)); // LSB
+	Wire.endTransmission();
+
+	Wire.requestFrom(deviceaddress, 1, 1);
+	if (Wire.available())
+		rdata = Wire.read();
+	delay(10);
+
+	return rdata;
+
+}
+#endif
+
+bool fs_eeprom::write_net_config(HardwareSerial * ser, network_info * net) {
+	// 2 byte adresse pro start
+	//net->save_current_net();
+
+	int pw_len = net->_password.length() + 1;
+	char tmp_pw[pw_len];
+	net->_password.toCharArray(tmp_pw, pw_len);
+	//for (int i = 0; i < pw_len; i++)
+	///Serial.println(tmp_pw[i]);
+
+	int ssid_len = net->_ssid.length() + 1;
+	char tmp_ssid[ssid_len];
+	net->_ssid.toCharArray(tmp_ssid, ssid_len);
+	//for (int i = 0; i < ssid_len; i++)
+	// Serial.println(tmp_ssid[1]);
+
+	//Serial.println("STOP !!!");
+
+	_internal_eeprom->begin(internal_eeprom_size);
+	uint16_t pw_max_addr = pw_len;
+	uint8_t pw_max_addr8[2];
+
+	pw_max_addr8[0] = (pw_max_addr & 0xff);
+	pw_max_addr8[1] = (pw_max_addr >> 8);
+
+	_internal_eeprom->write(0x01, pw_max_addr8[0]);
+	_internal_eeprom->write(0x02, pw_max_addr8[1]);
+	_internal_eeprom->commit();
+
+	uint16_t ssid_max_addr = ssid_len;
+	uint8_t ssid_max_addr8[2];
+	ssid_max_addr8[0] = (ssid_max_addr & 0xff);
+	ssid_max_addr8[1] = (ssid_max_addr >> 8);
+
+	_internal_eeprom->write(0x03, ssid_max_addr8[0]);
+	_internal_eeprom->write(0x04, ssid_max_addr8[1]);
+
+	for (int i = 0; i < pw_len; i++) {
+		_internal_eeprom->write(0x05 + i, tmp_pw[i]);
+
+	}
+	for (int i = 0; i < ssid_len; i++) {
+		_internal_eeprom->write((0x05 + pw_len + i), tmp_ssid[i]);
+
+	}
+
+	_internal_eeprom->write(0x00, VALID_CHAR);
+	_internal_eeprom->commit();
+
+	return true;
+}
+
+bool fs_eeprom::read_net_config(HardwareSerial * ser, network_info * net) {
+	_internal_eeprom->begin(internal_eeprom_size);
+
+	if (EEPROM.read(0) == VALID_CHAR) {
+		Serial.println("valids");
+		uint16_t wdp;
+		wdp = ((uint16_t) EEPROM.read(2) << 8) | EEPROM.read(1);
+		char _tmp_arr_pw[(int) wdp];
+		//Serial.println(wdp);
+
+		for (int i = 0; i <= (int) wdp; i++) { //TODO delete this if json doesn'T parse on the way out
+			_tmp_arr_pw[i] = EEPROM.read(5 + i);
+		}
+		net->_password = String(_tmp_arr_pw);
+
+		uint16_t wd = ((uint16_t) EEPROM.read(4) << 8) | EEPROM.read(3);
+		char _tmp_arr_ssid[(int) wd];
+
+		for (int i = 0; i <= (int) wd; i++) {
+			_tmp_arr_ssid[i] = EEPROM.read((int) wdp + i + 5);
+		}
+		//Serial.println(wd);
+
+		net->_ssid = String(_tmp_arr_ssid);
+		//Serial.println("ssid found : ");
+//Serial.println(_tmp_arr_ssid);
+		return true;
+
+	} else {
+		Serial.println("invalids");
+		net->_ssid = String("");
+
+		net->_password = String("");
+		return false;
+	}
+}
+bool fs_eeprom::remove_net_config() {
+	_internal_eeprom->begin(internal_eeprom_size);
+	_internal_eeprom->write(0x00, INVALID_CHAR);
+	_internal_eeprom->commit();
+
+	return true;
+}
+bool fs_eeprom::remove_string_config() {
+	_writeEEPROM(0, INVALID_CHAR);
+	Serial.println(_readEEPROM(0),HEX);
+	return true;
+}
+/*
+ void fs_eeprom::eepromsetup() {
+ Serial.println("setting up esp");
+ Wire.begin(eeprom_sda, eeprom_scl); // SDA / SCL pins auf nodemcu SD2 / SD3
+ wire_init_done = true;
+ }*/
+bool fs_eeprom::save_json_string_into_eeprom(JsonObject *to_be_saved) {
+	Serial.println("SAVE CALLED");
+	//to_be_saved->prettyPrintTo(Serial);
+
+	char tmp[to_be_saved->measureLength() + 1];
+	int c_length;
+	to_be_saved->printTo((char*) tmp,
+			c_length = to_be_saved->measureLength() + 1);
+
+	//Serial.println(tmp);
+	for (int i = 0; i <= c_length; i++) {
+		_writeEEPROM(default_conf_size + i, tmp[i]);
+	}
+	uint16_t max_addr = (c_length + default_conf_size);
+
+	uint8_t max_addr_ui8[2];
+	max_addr_ui8[0] = (max_addr & 0xff);
+	max_addr_ui8[1] = (max_addr >> 8);
+
+	_writeEEPROM(0, VALID_CHAR);
+	_writeEEPROM(1, max_addr_ui8[0]);
+	_writeEEPROM(2, max_addr_ui8[1]);
+
+	return true;
+}
+
+bool fs_eeprom::read_eeprom_config(config_class* sys_conf) {
+
+	Serial.println("load config");
+
+	uint16_t wd;
+
+	if (_readEEPROM(0) == VALID_CHAR) {
+
+		Serial.println(_readEEPROM(0), HEX);
+		wd = ((uint16_t) _readEEPROM(2) << 8) | _readEEPROM(1);
+		Serial.println(wd, HEX);
+		Serial.println((int) wd, DEC);
+
+		char x[(int) wd];
+		for (int i = 0; i <= (int) wd; i++) { //TODO delete this if json doesn'T parse on the way out
+			x[i] = _readEEPROM(default_conf_size + i);
+		}
+		//Serial.println(x);
+		DynamicJsonBuffer jsonBuffer(DEF_BUF_SIZE);
+
+		JsonObject& config_json = jsonBuffer.parseObject(x);
+		//config_json.prettyPrintTo(Serial);
+		//String x;
+		//JsonObject& data = config_json["data"];
+		//const char* tid = config_json["id"];
+		//Serial.println(tid);
+		//id = String(tid);
+		//config_json.printTo(config);
+		//have_valid_json=true;
+		*sys_conf = config_class(&config_json);
+		return true;
+	}
+	//have_valid_json=false;
+	return false;
+}
+
+int fs_eeprom::serialise_ui_list(std::list<unsigned long>* target,
+		int starting_addr) {
+	Serial.println("serialising list ");
+	//_writeEEPROM(0, VALID_CHAR);
+	int written = 0;
+	union {
+		char in_bytes[4];
+		long in_long;
+	} long_union_size, long_union_tmp;
+
+	long_union_size.in_long = target->size();
+
+	Serial.println(
+			"unsigned long list saving " + String(long_union_size.in_long));
+	//tmp.in_long = (unsigned long) target->size();
+	///Serial.println("started");
+	for (int i = 0; i < sizeof(unsigned long); i++) {
+		//Serial.println((long_union_size.in_bytes[i]), HEX);
+		_writeEEPROM(starting_addr + i, long_union_size.in_bytes[i]);
+	}
+	written += sizeof(unsigned long); // 4 bytes
+
+	for (std::list<unsigned long>::iterator it = target->begin();
+			it != target->end(); it++) {
+		//////Serial.print("saving ");
+		//Serial.println(*it);
+		written += write_ui((*it), written + starting_addr);
+
+	}
+	Serial.println(written);
+	return written;
+	//Serial.println("ended serialisation");
+}
+
+std::list<unsigned long> fs_eeprom::deserialise_ui_list(int starting_addr,
+		int *counter) {
+	//_writeEEPROM(0, VALID_CHAR);
+	Serial.println("started deserialisation ui list");
+
+	union {
+		char in_bytes[4];
+		long in_long;
+	} long_union_size, long_union_tmp;
+	std::list<unsigned long> ret;
+	int read = 0;
+	for (int i = 0; i < 4; i++) {
+		//Serial.println((long_union_size.in_bytes[i]), HEX);
+		long_union_size.in_bytes[i] = _readEEPROM(starting_addr + i);
+	}
+
+	read += sizeof(unsigned long);
+	////Serial.print("size of the ui  list = ");
+	Serial.println(long_union_size.in_long);
+
+	for (int i = 0; i < long_union_size.in_long; i++) {
+
+		unsigned long tmps = read_ui(starting_addr + read, &read);
+		ret.push_back(tmps);
+
+	}
+	(*counter) += read;
+	Serial.println("desearialised " + String(read));
+
+	//Serial.println("ended deserialisation");
+	return ret;
+}
+
+int fs_eeprom::serialise_room(std::list<room>::iterator* target,
+		int starting_addr) {
+
+	return write_ui((*(*target)).id, starting_addr);
+}
+
+int fs_eeprom::serialise_room_list(std::list<room>* target, int starting_addr) {
+
+	int written = 0;
+	written += write_ui(target->size(), starting_addr + written);
+
+	for (std::list<room>::iterator it = target->begin(); it != target->end();
+			it++) {
+		written += serialise_room(&it, starting_addr + written);
+	}
+	return written;
+}
+std::list<room> fs_eeprom::deserialise_room_list(int starting_addr,
+		int * counter) {
+	std::list<room> ret;
+	int read = 0;
+	unsigned long num_of_elem = read_ui(starting_addr + read, &read);
+	for (int i = 0; i < num_of_elem; i++) {
+		//Serial.println("reading sensor into list from");
+		//Serial.println(read + starting_addr);
+		ret.push_back(deserialise_room(starting_addr + read, &read));
+	}
+	*counter += read;
+	return ret;
+
+}
+
+room fs_eeprom::deserialise_room(int starting_addr, int * counter) {
+	return room(read_ui(starting_addr, counter));
+
+}
+
+int fs_eeprom::serialise_module(std::list<module>::iterator* target,
+		int starting_addr) {
+
+	//Serial.println("module serialisation");
+	//Serial.println((*(*target)).id); //this is the room id
+	int written = 0;
+	Serial.println("writing module");
+	written += write_ui((*(*target)).id, starting_addr + written);
+	Serial.println(
+			"after id " + String(starting_addr) + " X  "
+					+ String(written + starting_addr));
+	written += write_ui((*(*target)).h_id, starting_addr + written);
+	Serial.println(
+			"after h id " + String(starting_addr) + " X  "
+					+ String(written + starting_addr));
+	written += write_ui((*(*target)).room_id, starting_addr + written);
+	Serial.println(
+			"after r id " + String(starting_addr) + " X  "
+					+ String(written + starting_addr));
+	written += write_hex_num((*(*target)).model, starting_addr + written);
+	Serial.println(
+			"after m " + String(starting_addr) + " X  "
+					+ String(written + starting_addr));
+	written += write_hex_num((*(*target)).type, starting_addr + written);
+	Serial.println(
+			"after t " + String(starting_addr) + " X  "
+					+ String(written + starting_addr));
+	//written += write_hex_num((*(*target)).isPaired, starting_addr + written);
+
+	if (((*(*target)).model) == infrarot) {
+		//written += write_ui((*(*target)).decoder, starting_addr + written);
+		written += serialise_ui16_list(&(*(*target)).ir_h_id,
+				starting_addr + written);
+
+	}
+	Serial.println(
+			"after ir " + String(starting_addr) + " X  "
+					+ String(written + starting_addr));
+
+	//Serial.println("ended module serialisation");
+	return written;
+
+}
+
+module fs_eeprom::deserialise_module(int starting_addr, int * adress_change) {
+	int counter = 0;
+
+	Serial.println("mod deserialise");
+	unsigned long id, h_id, room_id, isp;
+	int type, model;
+	std::list<uint16_t> ir;
+
+	id = read_ui(starting_addr + counter, &counter);
+	Serial.println(
+			"after id " + String(starting_addr) + " X  "
+					+ String(counter + starting_addr));
+	h_id = read_ui(starting_addr + counter, &counter);
+	Serial.println(
+			"after h id " + String(starting_addr) + " X  "
+					+ String(counter + starting_addr));
+
+	room_id = read_ui(starting_addr + counter, &counter);
+	Serial.println(
+			"after r id " + String(starting_addr) + " X  "
+					+ String(counter + starting_addr));
+
+	model = read_hex_num(starting_addr + counter, &counter);
+	Serial.println(
+			"after m " + String(starting_addr) + " X  "
+					+ String(counter + starting_addr));
+
+	type = read_hex_num(starting_addr + counter, &counter);
+	Serial.println(
+			"after t " + String(starting_addr) + " X  "
+					+ String(counter + starting_addr));
+
+	if (model == infrarot) {
+		ir = deserialise_ui16_list(starting_addr + counter, &counter);
+
+	}
+	Serial.println(
+			"after ir " + String(starting_addr) + " X  "
+					+ String(counter + starting_addr));
+
+	*adress_change += counter;
+
+	return module(id, h_id, room_id, model, type, ir);
+
+}
+int fs_eeprom::write_ui(unsigned long target_id, int start_addr) {
+	union {
+		char in_bytes[4];
+		long in_long;
+	} long_union_tmp;
+	long_union_tmp.in_long = target_id;
+
+	for (int i = 0; i < sizeof(unsigned long); i++) {
+		//Serial.println((long_union_size.in_bytes[i]), HEX);
+		_writeEEPROM(start_addr + i, long_union_tmp.in_bytes[i]);
+	}
+
+	return sizeof(unsigned long);
+}
+
+int fs_eeprom::serialise_ui16(uint16_t target_id, int start_addr) {
+	union {
+		char in_bytes[2];
+		uint16_t in_u16;
+	} u16union;
+	u16union.in_u16 = target_id;
+
+	for (int i = 0; i < sizeof(uint16_t); i++) {
+		//Serial.println((long_union_size.in_bytes[i]), HEX);
+		_writeEEPROM(start_addr + i, u16union.in_bytes[i]);
+	}
+
+	return 2;
+}
+
+int fs_eeprom::serialise_ui16_list(std::list<uint16_t>* target,
+		int starting_addr) {
+	//Serial.println("serialising list ");
+	//_writeEEPROM(0, VALID_CHAR);
+	int written = 0;
+
+	union {
+		char in_bytes[4];
+		long in_long;
+	} long_union_size;
+
+	long_union_size.in_long = target->size();
+	//tmp.in_long = (unsigned long) target->size();
+	///Serial.println("started");
+	for (int i = 0; i < sizeof(unsigned long); i++) {
+		//Serial.println((long_union_size.in_bytes[i]), HEX);
+		_writeEEPROM(starting_addr + i, long_union_size.in_bytes[i]);
+	}
+	written += sizeof(unsigned long); // 4 bytes
+
+	Serial.println("serialising u16 list " + String(target->size()));
+
+	for (std::list<uint16_t>::iterator it = target->begin();
+			it != target->end(); it++) {
+		//////Serial.print("saving ");
+		//Serial.println(*it);
+
+		serialise_ui16((*it), starting_addr + written);
+
+		written += sizeof(uint16_t); // 2 bytes
+	}
+	//Serial.println(written);
+	return written;
+	//Serial.println("ended serialisation");
+}
+
+std::list<uint16_t> fs_eeprom::deserialise_ui16_list(int starting_addr,
+		int *counter) {
+	//_writeEEPROM(0, VALID_CHAR);
+	//Serial.println("started deserialisation");
+
+	union {
+		char in_bytes[4];
+		long in_long;
+	} long_union_size;
+	std::list<uint16_t> ret;
+	int already_read = 0;
+	//Serial.println("started");
+	for (int i = 0; i < sizeof(unsigned long); i++) {
+		//Serial.println((long_union_size.in_bytes[i]), HEX);
+		long_union_size.in_bytes[i] = _readEEPROM(starting_addr + i);
+	}
+	already_read += sizeof(unsigned long);
+
+	////Serial.print("size of the desserial list uint16 = ");
+	Serial.println(long_union_size.in_long);
+
+	for (int i = 0; i < long_union_size.in_long; i++) {
+
+		ret.push_back(
+				deserialise_ui16(starting_addr + already_read, &already_read));
+
+	}
+	(*counter) += already_read;
+	//Serial.println("deserial tmp list = ");
+
+	//Serial.println("ended deserialisation");
+	return ret;
+}
+
+uint16_t fs_eeprom::deserialise_ui16(int start_addr, int* counter) {
+	union {
+		char in_bytes[2];
+		uint16_t in_u16;
+	} u16union;
+
+	for (int i = 0; i < sizeof(uint16_t); i++) {
+		//Serial.println((long_union_size.in_bytes[i]), HEX);
+		u16union.in_bytes[i] = _readEEPROM(start_addr + i);
+	}
+	(*counter) += sizeof(uint16_t);
+
+	return u16union.in_u16;
+}
+
+unsigned long fs_eeprom::read_ui(int start_addr, int* counter) {
+	union {
+		char in_bytes[4];
+		long in_long;
+	} long_union_tmp;
+
+	for (int i = 0; i < sizeof(long); i++) {
+		//Serial.println((long_union_size.in_bytes[i]), HEX);
+		long_union_tmp.in_bytes[i] = _readEEPROM(start_addr + i);
+	}
+	(*counter) += 4;
+
+	return long_union_tmp.in_long;
+}
+
+int fs_eeprom::write_hex_num(int type, int start_addr) {
+	char code;
+	/*if (type == sender_type or type == jalousieSwitch or type == lightSensor
+	 or type == temp_exceed)
+	 code = 0x00;
+	 else if (type == receiver_type or type == dimmer or type == magnetSensor
+	 or type == temp_below)
+	 code = 0x01;
+	 else if (type == onOffSwitch or type == moveSensor or type == sunrise)
+	 code = 0x02;
+	 else if (type == infrared or type == u_def_sens or type == sunset)
+	 code = 0x03;
+	 else if (type == time or type == u_def_mod)
+	 code = 0x04;
+	 else if (type == u_def_a_trig)
+	 code = 0x05;
+	 else*/
+	code = type;
+
+	_writeEEPROM(start_addr, code);
+
+	return 1;
+
+}
+
+int fs_eeprom::read_hex_num(int start_addr, int * counter) {
+	byte type = _readEEPROM(start_addr);
+	(*counter) += 1; // reading 1 byte
+
+	/*if (type == sender_type or type == jalousieSwitch or type == lightSensor
+	 or type == temp_exceed)
+	 return 0;
+	 else if (type == receiver_type or type == dimmer or type == magnetSensor
+	 or type == temp_below)
+	 return 1;
+	 else if (type == onOffSwitch or type == moveSensor or type == sunrise)
+	 return 2;
+	 else if (type == infrared or type == u_def_sens or type == sunset)
+	 return 3;
+	 else if (type == time or type == u_def_mod)
+	 return 4;
+	 else if (type == u_def_a_trig)
+	 return 5;
+
+	 else*/
+	return type;
+
+}
+
+int fs_eeprom::serialise_sensor(std::list<sensor>::iterator* target,
+		int starting_addr) {
+
+	//Serial.println("sensor serialisation");
+	int written = 0;
+
+	written += write_ui((*(*target)).id, starting_addr + written);
+	written += write_ui((*(*target)).h_id, starting_addr + written);
+	written += write_ui((*(*target)).channel, starting_addr + written);
+	written += write_hex_num((*(*target)).type, starting_addr + written);
+	written += write_hex_num((*(*target)).model, starting_addr + written);
+	written += write_ui((*(*target)).autoSwitchOffTime,
+			starting_addr + written);
+
+	//written += write_hex_num((*(*target)).isPaired, starting_addr + written);
+	written += serialise_ui_list(&((*(*target)).limits),
+			starting_addr + written);
+
+	written += serialise_switch_entry_list(&((*(*target)).th_upper_switchOn),
+			starting_addr + written);
+	written += serialise_switch_entry_list(&((*(*target)).th_upper_switchOff),
+			starting_addr + written);
+
+	written += serialise_switch_entry_list(&((*(*target)).switch_on_list),
+			starting_addr + written);
+	written += serialise_switch_entry_list(&((*(*target)).switch_off_list),
+			starting_addr + written);
+	written += serialise_switch_entry_list(&((*(*target)).autoSwitchOff_list),
+			starting_addr + written);
+
+	//Serial.println("sensor module serialisation");
+	return written;
+
+}
+
+int fs_eeprom::serialise_sensor_list(std::list<sensor>* target,
+		int starting_addr) {
+
+	int written = 0;
+	written += write_ui(target->size(), starting_addr + written);
+
+	for (std::list<sensor>::iterator it = target->begin(); it != target->end();
+			it++) {
+		written += serialise_sensor(&it, starting_addr + written);
+	}
+	return written;
+}
+
+int fs_eeprom::serialise_module_list(std::list<module>* target,
+		int starting_addr) {
+	////Serial.print("serialising sensor list size = " + String(target->size()));
+	int written = 0;
+	written += write_ui(target->size(), starting_addr + written);
+
+	for (std::list<module>::iterator it = target->begin(); it != target->end();
+			it++) {
+		written += serialise_module(&it, starting_addr + written);
+	}
+	return written;
+}
+std::list<module> fs_eeprom::deserialise_module_list(int starting_addr,
+		int * counter) {
+	std::list<module> ret;
+	int read = 0;
+	unsigned long num_of_elem = read_ui(starting_addr + read, &read);
+	////Serial.print("deserialising list size = " + String(num_of_elem));
+	//Serial.println(num_of_elem);
+	for (int i = 0; i < num_of_elem; i++) {
+		//Serial.println("reading sensor into list from");
+		//Serial.println(read + starting_addr);
+		ret.push_back(deserialise_module(starting_addr + read, &read));
+	}
+	*counter += read;
+	return ret;
+
+}
+
+std::list<sensor> fs_eeprom::deserialise_sensor_list(int starting_addr,
+		int * counter) {
+	std::list<sensor> ret;
+	int read = 0;
+	unsigned long num_of_elem = read_ui(starting_addr + read, &read);
+
+	for (int i = 0; i < num_of_elem; i++) {
+		//Serial.println("reading sensor into list from");
+		//Serial.println(read + starting_addr);
+		ret.push_back(deserialise_sensor(starting_addr + read, &read));
+	}
+	*counter += read;
+	return ret;
+
+}
+
+sensor fs_eeprom::deserialise_sensor(int starting_addr, int* counter) {
+	int read = 0;
+	std::list<switch_entry> switchon, siwtchoff, autoswitch, thon, thoff;
+	unsigned long id, h_id, swtime, channel, type, model;
+	bool ip;
+	std::list<unsigned long> lim;
+	id = read_ui(starting_addr + read, &read);
+	h_id = read_ui(starting_addr + read, &read);
+	channel = read_ui(starting_addr + read, &read);
+
+	type = read_hex_num(starting_addr + read, &read);
+	model = read_hex_num(starting_addr + read, &read);
+
+	swtime = read_ui(starting_addr + read, &read);
+
+	lim = deserialise_ui_list(starting_addr + read, &read);
+
+	thon = deserialise_switch_entry_list(starting_addr + read, &read);
+	thoff = deserialise_switch_entry_list(starting_addr + read, &read);
+	//ip = read_hex_num(starting_addr + read, &read);
+	switchon = deserialise_switch_entry_list(starting_addr + read, &read); // error these are the same ! TODO !!!!
+	siwtchoff = deserialise_switch_entry_list(starting_addr + read, &read);
+	autoswitch = deserialise_switch_entry_list(starting_addr + read, &read);
+
+	*counter += read;
+
+	return sensor(id, h_id, channel, type, model, swtime, lim, thon, thoff,
+			switchon, siwtchoff, autoswitch);
+
+}
+
+int fs_eeprom::serialise_switch_entry(std::list<switch_entry>::iterator* target,
+		int starting_addr) {
+	//Serial.println("serialising entry");
+	int written = 0;
+	written += write_ui((*(*target)).sensitivity, starting_addr + written);
+	written += write_ui((*(*target)).module_id, starting_addr + written);
+	written += write_ui((*(*target)).del, starting_addr + written);
+	return written;
+}
+
+switch_entry fs_eeprom::deserialise_switch_entry(int starting_addr,
+		int *counter) {
+	int read = 0;
+	unsigned long sens, mo_id, del;
+	sens = read_ui(starting_addr + read, &read);
+	mo_id = read_ui(starting_addr + read, &read);
+	del = read_ui(starting_addr + read, &read);
+	*counter += read;
+	return switch_entry(sens, mo_id, del);
+}
+
+std::list<switch_entry> fs_eeprom::deserialise_switch_entry_list(
+		int starting_addr, int * counter) {
+	std::list<switch_entry> ret;
+	int read = 0;
+	unsigned long num_of_elem = read_ui(starting_addr + read, &read);
+	Serial.println("switch entry list reading num: " + String(num_of_elem));
+
+	for (int i = 0; i < num_of_elem; i++) {
+		ret.push_back(deserialise_switch_entry(starting_addr + read, &read));
+	}
+	*counter += read;
+	return ret;
+
+}
+
+int fs_eeprom::serialise_switch_entry_list(std::list<switch_entry>* target,
+		int starting_addr) {
+	//////Serial.print("serialising list size = ");
+	//Serial.println(target->size());
+	int written = 0;
+	written += write_ui(target->size(), starting_addr + written);
+
+	for (std::list<switch_entry>::iterator it = target->begin();
+			it != target->end(); it++) {
+		written += serialise_switch_entry(&it, starting_addr + written);
+	}
+	return written;
+}
+
+int fs_eeprom::serialise_sensor_change_entry(
+		std::list<sensor_change_entry>::iterator* target, int starting_addr) {
+	int written = 0;
+
+	Serial.println("serialising sensor change entry");
+
+	written += write_ui((*(*target)).id, starting_addr + written);
+	Serial.println(
+			"After id " + String(starting_addr) + " X " + String(written));
+
+	written += write_ui((*(*target)).autoSwitchOffTime,
+			starting_addr + written);
+	Serial.println(
+			"After time " + String(starting_addr) + " X " + String(written));
+
+	written += serialise_switch_entry_list(&((*(*target)).new_switchOn_list),
+			starting_addr + written);
+	Serial.println(
+			"After  on list " + String(starting_addr) + " X "
+					+ String(written));
+
+	written += serialise_switch_entry_list(&((*(*target)).new_switchOff_list),
+			starting_addr + written);
+	Serial.println(
+			"After  off list " + String(starting_addr) + " X "
+					+ String(written));
+
+	written += serialise_switch_entry_list(
+			&((*(*target)).new_autoSwitchOff_list), starting_addr + written);
+	Serial.println(
+			"After  auto list " + String(starting_addr) + " X "
+					+ String(written));
+
+	written += serialise_ui_list(&((*(*target)).new_limits),
+			starting_addr + written);
+	Serial.println(
+			"After  lim list " + String(starting_addr) + " X "
+					+ String(written));
+
+	written += serialise_switch_entry_list(&((*(*target)).th_upper_switchOn),
+			starting_addr + written);
+	Serial.println(
+			"After  thon list " + String(starting_addr) + " X "
+					+ String(written));
+
+	written += serialise_switch_entry_list(&((*(*target)).th_upper_switchOff),
+			starting_addr + written);
+	Serial.println(
+			"After  thoff list " + String(starting_addr) + " X "
+					+ String(written));
+
+	return written;
+
+}
+
+sensor_change_entry fs_eeprom::deserialise_sensor_change_entry(
+		int starting_addr, int *counter) {
+	int read = 0;
+	unsigned long id, autoswitchtime;
+	std::list<switch_entry> on, off, auto_, tho, thof;
+	std::list<unsigned long> thl;
+	Serial.println("reading sensor change entry");
+	id = read_ui(starting_addr + read, &read);
+	Serial.println(
+			"after id : " + String(starting_addr) + " X " + String(read));
+	autoswitchtime = read_ui(starting_addr + read, &read);
+	Serial.println(
+			"after time : " + String(starting_addr) + " X " + String(read));
+
+	on = deserialise_switch_entry_list(starting_addr + read, &read);
+	Serial.println(
+			"after on list : " + String(starting_addr) + " X " + String(read));
+
+	off = deserialise_switch_entry_list(starting_addr + read, &read);
+	Serial.println(
+			"after off list : " + String(starting_addr) + " X " + String(read));
+
+	auto_ = deserialise_switch_entry_list(starting_addr + read, &read);
+	Serial.println(
+			"after auto list : " + String(starting_addr) + " X "
+					+ String(read));
+
+	thl = deserialise_ui_list(starting_addr + read, &read);
+	Serial.println(
+			"after thlim list : " + String(starting_addr) + " X "
+					+ String(read));
+
+	tho = deserialise_switch_entry_list(starting_addr + read, &read);
+	Serial.println(
+			"after thon list : " + String(starting_addr) + " X "
+					+ String(read));
+
+	thof = deserialise_switch_entry_list(starting_addr + read, &read);
+	Serial.println(
+			"after thoff list : " + String(starting_addr) + " X "
+					+ String(read));
+
+	*counter += read;
+	return sensor_change_entry(id, autoswitchtime, on, off, auto_, thl, tho,
+			thof);
+}
+
+int fs_eeprom::serialise_sensor_change_entry_list(
+		std::list<sensor_change_entry>* target, int starting_addr) {
+	//////Serial.print("serialising sensor list size = ");
+	//Serial.println(target->size());
+	int written = 0;
+	written += write_ui(target->size(), starting_addr + written);
+
+	for (std::list<sensor_change_entry>::iterator it = target->begin();
+			it != target->end(); it++) {
+		written += serialise_sensor_change_entry(&it, starting_addr + written);
+	}
+	return written;
+}
+
+std::list<sensor_change_entry> fs_eeprom::deserialise_sensor_change_entry_list(
+		int starting_addr, int * counter) {
+	std::list<sensor_change_entry> ret;
+	int read = 0;
+	unsigned long num_of_elem = read_ui(starting_addr + read, &read);
+	//////Serial.print("deserialising list size = ");
+	//Serial.println(num_of_elem);
+	for (int i = 0; i < num_of_elem; i++) {
+		ret.push_back(
+				deserialise_sensor_change_entry(starting_addr + read, &read));
+	}
+	*counter += read;
+	return ret;
+
+}
+
+int fs_eeprom::serialise_scenario(std::list<scenario>::iterator* target,
+		int starting_addr) {
+	int written = 0;
+	Serial.println("serialising scenario");
+
+	written += write_ui((*(*target)).id, starting_addr + written);
+	Serial.println(
+			"after id " + String(starting_addr) + " X "
+					+ String(starting_addr + written));
+	written += write_hex_num((*(*target)).all_off, starting_addr + written);
+	Serial.println(
+			"after all of " + String(starting_addr) + " X "
+					+ String(starting_addr + written));
+
+	written += serialise_switch_entry_list(
+			&((*(*target)).module_switch_on_list), starting_addr + written);
+	Serial.println(
+			"after mod change " + String(starting_addr) + " X "
+					+ String(starting_addr + written));
+
+	written += serialise_sensor_change_entry_list(
+			&((*(*target)).sensor_changing_list), starting_addr + written);
+	Serial.println(
+			"after sens change list " + String(starting_addr) + " X "
+					+ String(starting_addr + written));
+
+	return written;
+
+}
+
+scenario fs_eeprom::deserialise_scenario(int starting_addr, int *counter) {
+	int read = 0;
+	unsigned long id, all_off;
+	std::list<switch_entry> mods;
+	std::list<sensor_change_entry> ch_list;
+	Serial.println("deserialising scenario");
+
+	id = read_ui(starting_addr + read, &read);
+	Serial.println(
+			"after id" + String(starting_addr) + " X "
+					+ String(starting_addr + read));
+
+	all_off = read_hex_num(starting_addr + read, &read);
+	Serial.println(
+			"after all off " + String(starting_addr) + " X "
+					+ String(starting_addr + read));
+
+	mods = deserialise_switch_entry_list(starting_addr + read, &read);
+	Serial.println(
+			"after mod change " + String(starting_addr) + " X "
+					+ String(starting_addr + read));
+
+	ch_list = deserialise_sensor_change_entry_list(starting_addr + read, &read);
+	Serial.println(
+			"after sens change " + String(starting_addr) + " X "
+					+ String(starting_addr + read));
+
+	*counter += read;
+	return scenario(id, all_off, mods, ch_list);
+}
+
+int fs_eeprom::serialise_scenario_list(std::list<scenario>* target,
+		int starting_addr) {
+	////Serial.print("serialising list size = " + String(target->size()));
+	//Serial.println(target->size());
+	int written = 0;
+	written += write_ui(target->size(), starting_addr + written);
+
+	for (std::list<scenario>::iterator it = target->begin();
+			it != target->end(); it++) {
+		written += serialise_scenario(&it, starting_addr + written);
+	}
+	return written;
+}
+
+std::list<scenario> fs_eeprom::deserialise_scenario_list(int starting_addr,
+		int * counter) {
+	std::list<scenario> ret;
+	int read = 0;
+	unsigned long num_of_elem = read_ui(starting_addr + read, &read);
+	////Serial.print("deserialising list size = " + String(num_of_elem));
+	//Serial.println(num_of_elem);
+	for (int i = 0; i < num_of_elem; i++) {
+		ret.push_back(deserialise_scenario(starting_addr + read, &read));
+	}
+	*counter += read;
+	return ret;
+
+}
+
+int fs_eeprom::serialise_automation(std::list<automation>::iterator* target,
+		int starting_addr) {
+	int written = 0;
+
+	written += write_ui((*(*target)).id, starting_addr + written);
+	written += write_ui((*(*target)).scenario_id, starting_addr + written);
+	written += write_hex_num((*(*target)).target_state,
+			starting_addr + written);
+	written += write_hex_num((*(*target)).trigger, starting_addr + written);
+
+	written += serialise_ui_list(&(*(*target)).trigger_vals,
+			starting_addr + written);
+	return written;
+
+}
+
+automation fs_eeprom::deserialise_automation(int starting_addr, int *counter) {
+	int read = 0;
+	unsigned long id, scene_id, target_state, trigger;
+	std::list<unsigned long> trigger_vals;
+
+	id = read_ui(starting_addr + read, &read);
+	scene_id = read_ui(starting_addr + read, &read);
+	target_state = read_hex_num(starting_addr + read, &read);
+	trigger = read_hex_num(starting_addr + read, &read);
+
+	trigger_vals = deserialise_ui_list(starting_addr + read, &read);
+	*counter += read;
+	return automation(id, scene_id, target_state, trigger, trigger_vals);
+}
+
+int fs_eeprom::serialise_automation_list(std::list<automation>* target,
+		int starting_addr) {
+	//////Serial.print("serialising sensor list size = ");
+	//Serial.println(target->size());
+	int written = 0;
+	written += write_ui(target->size(), starting_addr + written);
+
+	for (std::list<automation>::iterator it = target->begin();
+			it != target->end(); it++) {
+		written += serialise_automation(&it, starting_addr + written);
+	}
+	return written;
+}
+
+std::list<automation> fs_eeprom::deserialise_automation_list(int starting_addr,
+		int * counter) {
+	std::list<automation> ret;
+	int read = 0;
+	unsigned long num_of_elem = read_ui(starting_addr + read, &read);
+	//////Serial.print("deserialising list size = ");
+	//Serial.println(num_of_elem);
+	for (int i = 0; i < num_of_elem; i++) {
+		ret.push_back(deserialise_automation(starting_addr + read, &read));
+	}
+	*counter += read;
+	return ret;
+
+}
+
+int fs_eeprom::serialise_config_class(config_class* target, int starting_addr) {
+	int written = 0;
+	Serial.println("address print");
+	written += write_hex_num(VALID_CHAR, starting_addr + written);
+
+	written += serialise_string(&(*target).title, starting_addr + written);
+	written += serialise_string(&(*target).id, starting_addr + written);
+	Serial.println(written);
+
+	written += write_hex_num((*target).ip_addr[0], starting_addr + written);
+	written += write_hex_num((*target).ip_addr[1], starting_addr + written);
+	written += write_hex_num((*target).ip_addr[2], starting_addr + written);
+	written += write_hex_num((*target).ip_addr[3], starting_addr + written);
+
+	Serial.println("until ip" + String(written));
+
+	written += serialise_room_list(&(*target).rooms, starting_addr + written);
+	Serial.println("until rooms" + String(written));
+
+	written += serialise_sensor_list(&(*target).sensors,
+			starting_addr + written);
+	Serial.println("until sensors" + String(written));
+
+	written += serialise_scenario_list(&(*target).scenarios,
+			starting_addr + written);
+	Serial.println("until scenario" + String(written));
+
+	written += serialise_module_list(&(*target).modules,
+			starting_addr + written);
+	Serial.println("until modules" + String(written));
+
+	written += serialise_automation_list(&(*target).automations,
+			starting_addr + written);
+	Serial.println("until auto" + String(written));
+
+	/*int read = 0;
+	 int d = 0;
+	 read_hex_num(read, &d);
+	 read_hex_num(read, &d);
+	 read_hex_num(read, &d);
+	 read_hex_num(read, &d);*/
+
+	/*for (int i = 0; i < 255; i++) {
+	 int x = i;
+	 Serial.println(read_hex_num(x, &x), HEX);
+	 }*/
+
+	return written;
+}
+
+config_class fs_eeprom::deserialise_config_class(int starting_addr,
+		int * counter) {
+
+	//return config_class();	// TODO remove
+	int read = 0;
+
+	/*for (int i = 0; i < 255; i++) {
+	 int x = i;
+	 Serial.println(read_hex_num(x, &x), HEX);
+	 }*/
+	String id;
+	String title;
+	IPAddress ip_addr;
+	std::list<room> rooms;
+	std::list<sensor> sensors;
+	std::list<scenario> scenarios;
+	std::list<module> modules;
+	std::list<automation> automations;
+	Serial.println("address print");
+	Serial.println(_readEEPROM(0), HEX);
+
+	if (VALID_CHAR != read_hex_num(starting_addr + read, &read)) {
+		Serial.println("config on eeprom is not valid");
+
+		return config_class();
+	} else {
+		Serial.println("valid");
+	}
+
+	title = deserialise_string(starting_addr + read, &read);
+	id = deserialise_string(starting_addr + read, &read);
+	Serial.println(read);
+
+	ip_addr[0] = read_hex_num(starting_addr + read, &read);
+	ip_addr[1] = read_hex_num(starting_addr + read, &read);
+	ip_addr[2] = read_hex_num(starting_addr + read, &read);
+	ip_addr[3] = read_hex_num(starting_addr + read, &read);
+	Serial.println("until ip" + String(read));
+
+	rooms = deserialise_room_list(starting_addr + read, &read);
+	Serial.println("until rooms" + String(read));
+
+	sensors = deserialise_sensor_list(starting_addr + read, &read);
+	Serial.println("until sensors" + String(read));
+
+	scenarios = deserialise_scenario_list(starting_addr + read, &read);
+	Serial.println("until scenes" + String(read));
+
+	modules = deserialise_module_list(starting_addr + read, &read);
+	Serial.println("until modules" + String(read));
+
+	automations = deserialise_automation_list(starting_addr + read, &read);
+	Serial.println("until autos" + String(read));
+
+	*counter += read;
+	return config_class(title, id, ip_addr, rooms, sensors, scenarios, modules,
+			automations);
+
+}
+
+int fs_eeprom::serialise_string(String* target, int starting_addr) {
+	int written = 0;
+	written += write_ui(target->length(), starting_addr + written);
+	//Serial.println("Serialising " + *target);
+
+	for (int i = 0; i < target->length() + 1; i++) {
+		written += write_hex_num((target->c_str())[i], starting_addr + written);
+		//Serial.println("read: ");
+		//Serial.println(read_hex_num(starting_addr + x, &x),HEX);
+
+		//Serial.println(target->c_str()[i]);
+	}
+
+	return written;
+}
+
+String fs_eeprom::deserialise_string(int starting_addr, int * counter) {
+	String ret;
+	int read = 0;
+	unsigned long num_of_elem = read_ui(starting_addr + read, &read);
+	char ret_array[num_of_elem];
+	for (int i = 0; i < num_of_elem + 1; i++) {
+		ret_array[i] = read_hex_num(starting_addr + read, &read);
+		//Serial.println(ret_array[i], HEX);
+	}
+	*counter += read;
+	return String(ret_array);
+}
+
+//end
+

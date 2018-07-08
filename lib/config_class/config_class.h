@@ -20,10 +20,10 @@
 #include "../scenario/scenario.h"
 
 //functionality
-#include "../../transmitter/transmitter.h"
-#include "../../temp_hum_sens/temp_hum_sens.h"
-#include "../../infra/infra.h"
-#include "../../dusk_dawn_calc/dusk_dawn_calc.h"
+#include "../transmitter/transmitter.h"
+#include "../temp_hum_sens/temp_hum_sens.h"
+#include "../infra/infra.h"
+#include "../dusk_dawn_calc/dusk_dawn_calc.h"
 
 
 //values

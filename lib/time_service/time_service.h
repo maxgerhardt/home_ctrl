@@ -1,7 +1,7 @@
 #ifndef time_service_h
 #define time_service_h
 
-#include "../my_big_class/config_class/config_class.h"
+#include "../config_class/config_class.h"
 
 #define red_led 10
 #define blue_led 12

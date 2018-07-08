@@ -1,12 +1,12 @@
 #ifndef routines_h
 #define routines_h
 
+#include <eeprom2.h>
 #include "../debug/debug.h"
 #include "../receiver/receiver.h"
 #include "../transmitter/transmitter.h"
-#include "../eeprom/eeprom.h"
 #include "../network_info/network_info.h"
-#include "../my_big_class/config_class/config_class.h"
+#include "../config_class/config_class.h"
 #include "../temp_hum_sens/temp_hum_sens.h"
 
 #ifndef overrule_ports

@@ -1,6 +1,8 @@
 
 
 #include <Arduino.h>
+#include <eeprom2.h>
+
 #include <ArduinoJson.h>
 #include <ESP8266HTTPClient.h>
 #include <Ticker.h>
@@ -37,16 +39,15 @@
 #include "../lib/debug/debug.h"
 #include "../lib/receiver/receiver.h"
 #include "../lib/transmitter/transmitter.h"
-#include "../lib/eeprom/eeprom.h"
 #include "../lib/network_info/network_info.h"
-#include "../lib/my_big_class/config_class/config_class.h"
+#include "../lib/config_class/config_class.h"
 #include "../lib/temp_hum_sens/temp_hum_sens.h"
 #include "../lib/routines/routines.h"
 #include "../lib/utility/utility.h"
 #include "../lib/time_service/time_service.h"
 #include "../lib/web_utils/web_utils.h"
 
-#include "../lib/my_big_class/config_class/testing.h"
+#include "../lib/config_class/testing.h"
 
 /*
 void setup(){}

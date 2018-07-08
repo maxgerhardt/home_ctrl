@@ -1,4 +1,4 @@
-#include "eeprom.h"
+#include <eeprom2.h>
 //volatile static bool wire_init_done = false;
 
 #ifndef disk1
